@@ -11,6 +11,7 @@ import cv2
 
 st.set_page_config(
     page_title="Deteksi Uang",
+    page_icon="💵",
     layout="wide"
 )
 
@@ -31,7 +32,7 @@ model = load_model()
 
 
 # =========================
-# KALIBRASI SEMENTARA
+# KALIBRASI JARAK
 # =========================
 
 KNOWN_WIDTH = 15.0
@@ -39,7 +40,7 @@ FOCAL_LENGTH = 700
 
 
 # =========================
-# PROSES VIDEO
+# PROSES FRAME VIDEO
 # =========================
 
 def video_frame_callback(frame):
@@ -47,13 +48,25 @@ def video_frame_callback(frame):
     # Ambil frame dari kamera browser
     img = frame.to_ndarray(format="bgr24")
 
-    # Deteksi YOLO
-    results = model(img, verbose=False)
+    # =========================
+    # DETEKSI YOLO
+    # =========================
 
-    # Salin frame untuk diberi bounding box
+    results = model.predict(
+        source=img,
+        conf=0.15,
+        imgsz=640,
+        verbose=False
+    )
+
+    # Salin frame
     annotated_frame = img.copy()
 
-    # Semua objek yang terdeteksi
+
+    # =========================
+    # LOOP SEMUA OBJEK
+    # =========================
+
     for box in results[0].boxes:
 
         # Koordinat bounding box
@@ -75,16 +88,25 @@ def video_frame_callback(frame):
         if box_width <= 0:
             continue
 
-        # Estimasi jarak
+
+        # =========================
+        # ESTIMASI JARAK
+        # =========================
+
         distance = (
             KNOWN_WIDTH * FOCAL_LENGTH
         ) / box_width
 
-        # Batasi sementara maksimal 35 cm
+
+        # Batasi maksimal 35 cm
         if distance > 35:
             continue
 
-        # Bounding box
+
+        # =========================
+        # BOUNDING BOX
+        # =========================
+
         cv2.rectangle(
             annotated_frame,
             (x1, y1),
@@ -93,27 +115,32 @@ def video_frame_callback(frame):
             2
         )
 
-        # Tulisan label
+
+        # =========================
+        # LABEL
+        # =========================
+
         text = (
             f"{label} | "
             f"{confidence * 100:.1f}% | "
             f"{distance:.1f} cm"
         )
 
-        # Posisi tulisan
-        text_y = max(y1 - 10, 25)
-
         cv2.putText(
             annotated_frame,
             text,
-            (x1, text_y),
+            (x1, max(y1 - 10, 25)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.6,
             (0, 255, 0),
             2
         )
 
-    # Kembalikan frame ke browser
+
+    # =========================
+    # KEMBALIKAN FRAME
+    # =========================
+
     return av.VideoFrame.from_ndarray(
         annotated_frame,
         format="bgr24"
@@ -121,23 +148,67 @@ def video_frame_callback(frame):
 
 
 # =========================
-# KAMERA BROWSER
+# WEBRTC CAMERA
 # =========================
 
 webrtc_streamer(
     key="deteksi-uang",
     video_frame_callback=video_frame_callback,
+
     media_stream_constraints={
         "video": True,
         "audio": False
     },
+
+    # Pemrosesan video secara asynchronous
+    async_processing=True,
+
+    # =========================
+    # STUN + TURN
+    # =========================
+
     rtc_configuration={
         "iceServers": [
+
+            # STUN Google
             {
                 "urls": [
                     "stun:stun.l.google.com:19302"
                 ]
+            },
+
+            # TURN Open Relay
+            {
+                "urls": [
+                    "turn:openrelay.metered.ca:80"
+                ],
+                "username": "openrelayproject",
+                "credential": "openrelayproject"
+            },
+
+            # TURN melalui port 443
+            {
+                "urls": [
+                    "turn:openrelay.metered.ca:443"
+                ],
+                "username": "openrelayproject",
+                "credential": "openrelayproject"
+            },
+
+            # TURN TCP
+            {
+                "urls": [
+                    "turn:openrelay.metered.ca:443?transport=tcp"
+                ],
+                "username": "openrelayproject",
+                "credential": "openrelayproject"
             }
         ]
+    },
+
+    # Sembunyikan kontrol audio karena tidak digunakan
+    media_stream_constraints={
+        "video": True,
+        "audio": False
     }
 )
