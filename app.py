@@ -1,49 +1,73 @@
 import streamlit as st
 from ultralytics import YOLO
+from streamlit_webrtc import webrtc_streamer
+import av
 import cv2
 
-st.set_page_config(page_title="Deteksi Uang", layout="wide")
+
+# =========================
+# PENGATURAN HALAMAN
+# =========================
+
+st.set_page_config(
+    page_title="Deteksi Uang",
+    layout="wide"
+)
 
 st.title("💵 Deteksi Uang Realtime dengan YOLOv8")
+st.write("Arahkan kamera ke uang Rupiah untuk melakukan deteksi.")
 
-# Load model
-model = YOLO("best.pt")
 
-# Tombol start kamera
-run = st.checkbox("Aktifkan Kamera")
+# =========================
+# LOAD MODEL
+# =========================
 
-FRAME_WINDOW = st.image([])
+@st.cache_resource
+def load_model():
+    return YOLO("best.pt")
 
-camera = cv2.VideoCapture(0)
 
-# ==========================
+model = load_model()
+
+
+# =========================
 # KALIBRASI SEMENTARA
-# ==========================
-KNOWN_WIDTH = 15.0      # cm
-FOCAL_LENGTH = 700      # Sesuaikan jika diperlukan
+# =========================
 
-while run:
-    success, frame = camera.read()
+KNOWN_WIDTH = 15.0
+FOCAL_LENGTH = 700
 
-    if not success:
-        st.error("Webcam tidak ditemukan")
-        break
+
+# =========================
+# PROSES VIDEO
+# =========================
+
+def video_frame_callback(frame):
+
+    # Ambil frame dari kamera browser
+    img = frame.to_ndarray(format="bgr24")
 
     # Deteksi YOLO
-    results = model(frame)
+    results = model(img, verbose=False)
 
-    # Salin frame
-    annotated_frame = frame.copy()
+    # Salin frame untuk diberi bounding box
+    annotated_frame = img.copy()
 
-    # Loop semua objek yang terdeteksi
+    # Semua objek yang terdeteksi
     for box in results[0].boxes:
 
         # Koordinat bounding box
-        x1, y1, x2, y2 = map(int, box.xyxy[0])
+        x1, y1, x2, y2 = map(
+            int,
+            box.xyxy[0]
+        )
 
-        # Nama kelas
+        # Class
         cls = int(box.cls[0])
         label = model.names[cls]
+
+        # Confidence
+        confidence = float(box.conf[0])
 
         # Lebar bounding box
         box_width = x2 - x1
@@ -52,9 +76,11 @@ while run:
             continue
 
         # Estimasi jarak
-        distance = (KNOWN_WIDTH * FOCAL_LENGTH) / box_width
+        distance = (
+            KNOWN_WIDTH * FOCAL_LENGTH
+        ) / box_width
 
-        # Batasi maksimal 35 cm
+        # Batasi sementara maksimal 35 cm
         if distance > 35:
             continue
 
@@ -67,21 +93,51 @@ while run:
             2
         )
 
-        # Label + Jarak
+        # Tulisan label
+        text = (
+            f"{label} | "
+            f"{confidence * 100:.1f}% | "
+            f"{distance:.1f} cm"
+        )
+
+        # Posisi tulisan
+        text_y = max(y1 - 10, 25)
+
         cv2.putText(
             annotated_frame,
-            f"{label} | {int(distance)} cm",
-            (x1, y1 - 10),
+            text,
+            (x1, text_y),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
+            0.6,
             (0, 255, 0),
             2
         )
 
-    # Tampilkan hasil
-    FRAME_WINDOW.image(
+    # Kembalikan frame ke browser
+    return av.VideoFrame.from_ndarray(
         annotated_frame,
-        channels="BGR"
+        format="bgr24"
     )
 
-camera.release()
+
+# =========================
+# KAMERA BROWSER
+# =========================
+
+webrtc_streamer(
+    key="deteksi-uang",
+    video_frame_callback=video_frame_callback,
+    media_stream_constraints={
+        "video": True,
+        "audio": False
+    },
+    rtc_configuration={
+        "iceServers": [
+            {
+                "urls": [
+                    "stun:stun.l.google.com:19302"
+                ]
+            }
+        ]
+    }
+)
