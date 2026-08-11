@@ -40,17 +40,12 @@ FOCAL_LENGTH = 700
 
 
 # =========================
-# PROSES FRAME VIDEO
+# PROSES FRAME
 # =========================
 
 def video_frame_callback(frame):
 
-    # Ambil frame dari kamera browser
     img = frame.to_ndarray(format="bgr24")
-
-    # =========================
-    # DETEKSI YOLO
-    # =========================
 
     results = model.predict(
         source=img,
@@ -59,35 +54,27 @@ def video_frame_callback(frame):
         verbose=False
     )
 
-    # Salin frame
     annotated_frame = img.copy()
 
-
     # =========================
-    # LOOP SEMUA OBJEK
+    # DETEKSI SEMUA OBJEK
     # =========================
 
     for box in results[0].boxes:
 
-        # Koordinat bounding box
         x1, y1, x2, y2 = map(
             int,
             box.xyxy[0]
         )
 
-        # Class
         cls = int(box.cls[0])
         label = model.names[cls]
-
-        # Confidence
         confidence = float(box.conf[0])
 
-        # Lebar bounding box
         box_width = x2 - x1
 
         if box_width <= 0:
             continue
-
 
         # =========================
         # ESTIMASI JARAK
@@ -97,11 +84,9 @@ def video_frame_callback(frame):
             KNOWN_WIDTH * FOCAL_LENGTH
         ) / box_width
 
-
-        # Batasi maksimal 35 cm
+        # Hanya tampilkan objek <= 35 cm
         if distance > 35:
             continue
-
 
         # =========================
         # BOUNDING BOX
@@ -114,7 +99,6 @@ def video_frame_callback(frame):
             (0, 255, 0),
             2
         )
-
 
         # =========================
         # LABEL
@@ -136,7 +120,6 @@ def video_frame_callback(frame):
             2
         )
 
-
     # =========================
     # KEMBALIKAN FRAME
     # =========================
@@ -148,11 +131,12 @@ def video_frame_callback(frame):
 
 
 # =========================
-# WEBRTC CAMERA
+# WEBSOCKET / WEBRTC CAMERA
 # =========================
 
 webrtc_streamer(
     key="deteksi-uang",
+
     video_frame_callback=video_frame_callback,
 
     media_stream_constraints={
@@ -160,7 +144,7 @@ webrtc_streamer(
         "audio": False
     },
 
-    # Pemrosesan video secara asynchronous
+    # Pemrosesan asynchronous
     async_processing=True,
 
     # =========================
@@ -170,14 +154,14 @@ webrtc_streamer(
     rtc_configuration={
         "iceServers": [
 
-            # STUN Google
+            # STUN
             {
                 "urls": [
                     "stun:stun.l.google.com:19302"
                 ]
             },
 
-            # TURN Open Relay
+            # TURN Open Relay - port 80
             {
                 "urls": [
                     "turn:openrelay.metered.ca:80"
@@ -186,7 +170,7 @@ webrtc_streamer(
                 "credential": "openrelayproject"
             },
 
-            # TURN melalui port 443
+            # TURN Open Relay - port 443
             {
                 "urls": [
                     "turn:openrelay.metered.ca:443"
@@ -195,7 +179,7 @@ webrtc_streamer(
                 "credential": "openrelayproject"
             },
 
-            # TURN TCP
+            # TURN TCP - port 443
             {
                 "urls": [
                     "turn:openrelay.metered.ca:443?transport=tcp"
@@ -204,11 +188,5 @@ webrtc_streamer(
                 "credential": "openrelayproject"
             }
         ]
-    },
-
-    # Sembunyikan kontrol audio karena tidak digunakan
-    media_stream_constraints={
-        "video": True,
-        "audio": False
     }
 )
